@@ -9,6 +9,9 @@ def create_env(env_name, tokenizer, **env_kwargs):
     elif env_name == 'osv5m' or env_name == 'geospot':
         from vlmrl.envs.osv5m import OSV5MEnv
         env = OSV5MEnv(tokenizer, **env_kwargs)
+    elif env_name in {'food', 'food_nutrition', 'nutrition'}:
+        from vlmrl.envs.food_nutrition import FoodNutritionEnv
+        env = FoodNutritionEnv(tokenizer, **env_kwargs)
     else:
         raise ValueError(f"Unknown environment name: {env_name}")
     return env

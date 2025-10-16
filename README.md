@@ -5,6 +5,7 @@
 A simple reinforcement learning framework for vision-language models, written in JAX. Drop in any environment, any model, and train with GRPO.
 
 **Core components:**
+
 - `envs/` — Pluggable vision environments (GeoGuessr, NLVR2, captioning)
 - `models/` — VLM implementations (Qwen2.5-VL reference)
 - `core/grpo.py` — Trainer (currently just a modified version of REINFORCE)
@@ -25,19 +26,23 @@ python core/grpo.py \
   --lr=5e-7 \
   --total_steps=10000
 ```
+
 ---
 
 **Install**
+
 ```bash
 uv sync
 ```
 
 **Convert HF → JAX** (defaults to Qwen/Qwen2.5-VL-7B-Instruct)
+
 ```bash
 python -m utils.hf_to_jax --model_dir checkpoints/qwen25vl_7b
 ```
 
 **Sample**
+
 ```bash
 python -m core.sampling \
   --ckpt_dir checkpoints/qwen25vl_7b \
@@ -46,6 +51,7 @@ python -m core.sampling \
 ```
 
 **Train**
+
 ```bash
 # Train on any environment
 python core/grpo.py \
@@ -59,6 +65,7 @@ python core/grpo.py \
 ```
 
 **Evaluate**
+
 ```bash
 python core/eval.py \
   --model_dir checkpoints/qwen25vl_7b \
@@ -80,15 +87,17 @@ class MyEnv(BaseEnv):
     def reset(self, idx):
         # Return state and observation
         return state, obs
-    
+
     def step(self, state, action_tokens):
         # Calculate reward based on VLM output
         return state, [], reward, done, info
 ```
 
 **Built-in environments:**
+
 - `osv5m` — **GeoGuessr**: Street-view geolocation with hierarchical rewards (country→region→city→coords)
 - `nlvr2` — Two-image True/False reasoning
+- `food` — **Food Nutrition**: Predict nutrition labels (calories, macros, healthiness) from food images
 
 ---
 

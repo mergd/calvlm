@@ -2837,7 +2837,8 @@ dependencies = [
     { name = "datasets" },
     { name = "einops" },
     { name = "flax" },
-    { name = "jax", extra = ["cuda12"] },
+    { name = "jax" },
+    { name = "jaxlib" },
     { name = "jaxtyping" },
     { name = "ml-collections" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
@@ -2852,6 +2853,11 @@ dependencies = [
     { name = "wandb" },
 ]
 
+[package.optional-dependencies]
+cuda = [
+    { name = "jax", extra = ["cuda12"] },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "absl-py" },
@@ -2859,7 +2865,9 @@ requires-dist = [
     { name = "datasets", specifier = ">=4.1.1" },
     { name = "einops" },
     { name = "flax", specifier = "==0.10.6" },
-    { name = "jax", extras = ["cuda12"], specifier = "==0.6.1" },
+    { name = "jax", specifier = "==0.6.1" },
+    { name = "jax", extras = ["cuda12"], marker = "extra == 'cuda'", specifier = "==0.6.1" },
+    { name = "jaxlib", specifier = "==0.6.1" },
     { name = "jaxtyping" },
     { name = "ml-collections" },
     { name = "numpy" },
@@ -2872,6 +2880,7 @@ requires-dist = [
     { name = "transformers" },
     { name = "wandb" },
 ]
+provides-extras = ["cuda"]
 
 [[package]]
 name = "wadler-lindig"
