@@ -9,7 +9,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
-from typing import Any, Dict, Iterable, Iterator, Optional
+from typing import Any, Dict, Iterable, Iterator, Optional, Sequence
 
 import requests
 from PIL import Image
@@ -21,7 +21,139 @@ except ImportError as exc:  # pragma: no cover - optional dependency
         "This script requires the `datasets` package. Install via `pip install datasets`."
     ) from exc
 
-from core.simple_hf_backend import _load_hf_model, generate_response
+try:
+    from core.simple_hf_backend import _load_hf_model, generate_response
+except ModuleNotFoundError:
+    _load_hf_model = None  # type: ignore[assignment]
+    generate_response = None  # type: ignore[assignment]
+
+    def _local_to_image(image: Any) -> Image.Image:
+        """Return an RGB PIL image from a path or in-memory object."""
+        if isinstance(image, Image.Image):
+            return image.convert("RGB")
+        path = Path(image)
+        if not path.exists():
+            raise FileNotFoundError(f"Image file not found: {image}")
+        with Image.open(path) as pil:
+            return pil.convert("RGB")
+
+    def _local_build_prompt(tokenizer, question: str, num_images: int) -> str:
+        """Format a chat prompt matching the Qwen2.5-VL template."""
+        content = [{"type": "image"} for _ in range(num_images)]
+        content.append({"type": "text", "text": question})
+        messages = [{"role": "user", "content": content}]
+        return tokenizer.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True
+        )
+
+    def _local_load_hf_model(  # type: ignore[override]
+        model_id: str,
+        *,
+        torch_dtype: str = "bfloat16",
+        device_map: str = "auto",
+        trust_remote_code: bool = True,
+    ):
+        """Load Hugging Face processor/model/tokenizer trio for Qwen2.5-VL."""
+        try:
+            import torch
+            from transformers import AutoModelForVision2Seq, AutoProcessor, AutoTokenizer
+        except ImportError as exc:  # pragma: no cover - optional dependency
+            raise RuntimeError(
+                "The evaluation script requires `transformers`, `torch`, and related dependencies. "
+                "Install via `pip install transformers accelerate torch`."
+            ) from exc
+
+        tokenizer = AutoTokenizer.from_pretrained(
+            model_id, trust_remote_code=trust_remote_code
+        )
+        processor = AutoProcessor.from_pretrained(
+            model_id, trust_remote_code=trust_remote_code
+        )
+
+        dtype_arg: Any = "auto"
+        if torch_dtype and torch_dtype != "auto":
+            torch_dtype = torch_dtype.lower()
+            if not hasattr(torch, torch_dtype):
+                raise ValueError(f"Unsupported torch dtype: {torch_dtype}")
+            dtype_arg = getattr(torch, torch_dtype)
+
+        model_kwargs: Dict[str, Any] = {
+            "trust_remote_code": trust_remote_code,
+            "device_map": device_map,
+        }
+        if dtype_arg != "auto":
+            model_kwargs["torch_dtype"] = dtype_arg
+
+        model = AutoModelForVision2Seq.from_pretrained(model_id, **model_kwargs)
+        model.eval()
+        device = next(model.parameters()).device
+        return tokenizer, processor, model, device
+
+    def _local_generate_response(  # type: ignore[override]
+        tokenizer,
+        processor,
+        model,
+        device,
+        *,
+        question: str,
+        images: Sequence[Any],
+        max_new_tokens: int = 128,
+        temperature: float = 0.2,
+        top_p: Optional[float] = None,
+        top_k: Optional[int] = None,
+        stop_token_id: Optional[int] = None,
+    ):
+        """Generate text and token ids for the given multimodal prompt."""
+        import torch
+
+        pil_images = [_local_to_image(img) for img in images]
+        prompt = _local_build_prompt(tokenizer, question, len(pil_images))
+
+        processor_inputs = processor(
+            text=[prompt],
+            images=pil_images if len(pil_images) == 1 else [pil_images],
+            return_tensors="pt",
+        )
+        processor_inputs = {
+            k: v.to(device) if hasattr(v, "to") else v
+            for k, v in processor_inputs.items()
+        }
+
+        gen_kwargs: Dict[str, Any] = {"max_new_tokens": int(max_new_tokens)}
+        if temperature is not None and temperature > 0:
+            gen_kwargs["temperature"] = float(temperature)
+            gen_kwargs["do_sample"] = True
+        else:
+            gen_kwargs["temperature"] = 0.0
+            gen_kwargs["do_sample"] = False
+        if top_p is not None and 0 < top_p < 1:
+            gen_kwargs["top_p"] = float(top_p)
+        if top_k is not None and top_k > 0:
+            gen_kwargs["top_k"] = int(top_k)
+
+        with torch.inference_mode():
+            generated = model.generate(**processor_inputs, **gen_kwargs)
+
+        input_len = processor_inputs["input_ids"].shape[-1]
+        continuation = generated[:, input_len:]
+        token_ids = continuation[0].tolist()
+        if stop_token_id is not None:
+            try:
+                stop_index = token_ids.index(int(stop_token_id))
+                token_ids = token_ids[: stop_index + 1]
+            except ValueError:
+                pass
+
+        text = processor.batch_decode(
+            continuation,
+            skip_special_tokens=True,
+            clean_up_tokenization_spaces=False,
+        )[0].strip()
+        return token_ids, text
+
+    # Bind fallbacks
+    _load_hf_model = _local_load_hf_model  # type: ignore[assignment]
+    generate_response = _local_generate_response  # type: ignore[assignment]
 
 
 TARGET_FIELDS = ("calories_kcal", "protein_g", "fat_g", "carbohydrate_g")
